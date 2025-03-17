@@ -272,7 +272,11 @@ def send_message(request: chat_schemas.SendMessageRequest, db: Session = Depends
     return chat_schemas.MessageResponse(success=True, data=message_data)
 
 @router.post("/messages/upload-media")
-async def upload_media(file: UploadFile = File(...), current_user: models.User = Depends(auth.get_current_user)):
+async def upload_media(
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
     # Validasi tipe file
     content_type = file.content_type
     
