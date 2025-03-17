@@ -1,6 +1,6 @@
 # app/chat_routes.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 import uuid
 from datetime import datetime
@@ -8,8 +8,8 @@ from datetime import datetime
 from . import models, chat_models, chat_schemas, auth, schemas
 from .dependencies import get_db
 from .logging_service import log_activity
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from .media_service import save_media
+import traceback
 
 router = APIRouter()
 
@@ -172,6 +172,8 @@ def get_messages(chat_id: str,
             sender_id=str(message.sender_id),
             sender_name=sender.name,
             content=message.content,
+            message_type=message.message_type,
+            media_url=message.media_url,
             timestamp=message.timestamp,
             read=message.read
         )
@@ -183,49 +185,6 @@ def get_messages(chat_id: str,
 def send_message(request: chat_schemas.SendMessageRequest, 
                  db: Session = Depends(get_db), 
                  current_user: models.User = Depends(auth.get_current_user)):
-    # Verify chat exists and user is a participant
-    participant = db.query(chat_models.ChatParticipant).filter(
-        chat_models.ChatParticipant.chat_id == request.chat_id,
-        chat_models.ChatParticipant.user_id == current_user.id
-    ).first()
-    
-    if not participant:
-        return chat_schemas.MessageResponse(success=False, error="Chat not found or you're not a participant")
-    
-    # Create new message
-    message_id = str(uuid.uuid4())
-    new_message = chat_models.Message(
-        id=message_id,
-        chat_id=request.chat_id,
-        sender_id=current_user.id,
-        content=request.content,
-        timestamp=datetime.utcnow(),
-        read=False
-    )
-    
-    db.add(new_message)
-    db.commit()
-    db.refresh(new_message)
-    
-    # Log activity
-    log = schemas.ActivityLogCreate(action=f"Sent message to chat {request.chat_id}")
-    log_activity(db, log, current_user.id)
-    
-    # Construct response
-    message_data = chat_schemas.Message(
-        id=new_message.id,
-        chat_id=new_message.chat_id,
-        sender_id=str(current_user.id),
-        sender_name=current_user.name,
-        content=new_message.content,
-        timestamp=new_message.timestamp,
-        read=new_message.read
-    )
-    
-    return chat_schemas.MessageResponse(success=True, data=message_data)
-
-@router.post("/messages", response_model=chat_schemas.MessageResponse)
-def send_message(request: chat_schemas.SendMessageRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     # Verify chat exists and user is a participant
     participant = db.query(chat_models.ChatParticipant).filter(
         chat_models.ChatParticipant.chat_id == request.chat_id,
@@ -277,27 +236,32 @@ async def upload_media(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    # Validasi tipe file
-    content_type = file.content_type
-    
-    if content_type.startswith("image/"):
-        file_type = "image"
-    elif content_type.startswith("video/"):
-        file_type = "video"
-    else:
-        raise HTTPException(status_code=400, detail="Only image and video files are allowed")
-    
-    # Simpan file
-    media_url = await save_media(file)
-    
-    # Log aktivitas
-    log = schemas.ActivityLogCreate(action=f"Uploaded {file_type}")
-    log_activity(db, log, current_user.id)
-    
-    return {
-        "success": True, 
-        "data": {
-            "media_url": media_url,
-            "message_type": file_type
+    try:
+        # Validasi tipe file
+        content_type = file.content_type
+        
+        if content_type.startswith("image/"):
+            file_type = "image"
+        elif content_type.startswith("video/"):
+            file_type = "video"
+        else:
+            raise HTTPException(status_code=400, detail="Only image and video files are allowed")
+        
+        # Simpan file
+        media_url = await save_media(file)
+        
+        # Log aktivitas
+        log = schemas.ActivityLogCreate(action=f"Uploaded {file_type}")
+        log_activity(db, log, current_user.id)
+        
+        return {
+            "success": True, 
+            "data": {
+                "media_url": media_url,
+                "message_type": file_type
+            }
         }
-    }
+    except Exception as e:
+        print(f"Error in upload_media: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))

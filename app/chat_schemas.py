@@ -10,6 +10,8 @@ class MessageBase(BaseModel):
 
 class SendMessageRequest(MessageBase):
     chat_id: str
+    message_type: str = "text"
+    media_url: Optional[str] = None
 
 class Message(BaseModel):
     id: str
@@ -17,6 +19,8 @@ class Message(BaseModel):
     sender_id: str
     sender_name: str
     content: str
+    message_type: str = "text"
+    media_url: Optional[str] = None
     timestamp: datetime
     read: bool
 
